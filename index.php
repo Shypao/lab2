@@ -1,15 +1,15 @@
 <?php
 // index.php
-// Main UI — expects badminton_app.php to set $courts, $queue, $standby_tables, $playerPlays
 include 'badminton_app.php';
 
-// Ensure variables exist and are arrays (fall back to empty arrays to avoid warnings)
 $courts = isset($courts) && is_array($courts) ? $courts : [];
 $queue = isset($queue) && is_array($queue) ? $queue : [];
 $standby_tables = isset($standby_tables) && is_array($standby_tables) ? $standby_tables : [];
 $playerPlays = isset($playerPlays) && is_array($playerPlays) ? $playerPlays : [];
+$tables = $pdo->query("SELECT * FROM standby_tables ORDER BY table_number ASC")->fetchAll(PDO::FETCH_ASSOC);
 
-// Build a lookup for player stats (playerPlays likely has player_name, games_played, total_revenue)
+
+// Player stats lookup
 $playerStatsByName = [];
 foreach ($playerPlays as $stat) {
     $name = $stat['player_name'] ?? $stat['name'] ?? null;
@@ -18,7 +18,7 @@ foreach ($playerPlays as $stat) {
     }
 }
 
-// Build a lookup for standby tables by table_number to avoid array_filter + reset pitfalls
+// Standby tables lookup
 $tablesByNumber = [];
 foreach ($standby_tables as $t) {
     if (isset($t['table_number'])) {
@@ -33,20 +33,42 @@ foreach ($standby_tables as $t) {
   <title>Badminton Court Queue</title>
   <link rel="stylesheet" href="courts.css">
   <style>
-    /* minimal fallback styles */
-    .container { display:flex; gap:20px; padding:16px; }
-    .left, .right { flex:1; }
-    .section { margin-bottom:16px; background:#f9f9f9; padding:12px; border-radius:6px; }
-    .inline { display:inline-block; margin-left:6px; }
-    ul { list-style:none; padding-left:0; }
-    .standby-grid, .court-grid { display:grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap:12px; }
-    .table-box, .court-card { border:1px solid #ddd; padding:8px; border-radius:6px; background:#fff; }
-    .table-full { background:#e8f7e8; } .table-partial { background:#fff6e6; }
+    body { margin: 0; font-family: sans-serif; background: #f2f2f2; }
+    .main-container { display: flex; padding: 16px; gap: 20px; }
+    .left, .middle, .right { background: #fff; padding: 20px; border-radius: px; }
+    .left { flex: 1.2; }
+    .middle { flex: 1; }
+    .right { flex: 3; max: width 70px;px; }
+
+    .section { margin-bottom: 20px; }
+    .inline { display: inline-block; margin-left: 6px; }
+    ul { list-style: none; padding-left: 0; }
+
+
+    .table-box, .court-card {
+      border: 1px solid #ddd;
+      padding: 8px;
+      border-radius: 6px;
+      background: #fff;
+    }
+
+    .table-full { background: #e8f7e8; }
+    .table-partial { background: #fff6e6; }
+
+    .bottom-links {
+      text-align: center;
+      margin-top: 20px;
+    }
+
+    h2 { margin-top: 0; }
+    input[type="text"] { padding: 4px; }
+    button { padding: 4px 8px; }
   </style>
 </head>
-
 <body>
-  <div class="container">
+  <div class="main-container">
+    
+    <!-- LEFT COLUMN -->
     <div class="left">
       <div class="section">
         <h2>Add Player to Queue</h2>
@@ -60,160 +82,134 @@ foreach ($standby_tables as $t) {
       </div>
 
       <div class="section">
-        <h2>Waiting Queue (<?= is_array($queue) ? count($queue) : 0 ?>)</h2>
+        <h2>Waiting Queue (<?= count($queue) ?>)</h2>
         <ul>
-          <?php if (!empty($queue)): ?>
-            <?php foreach ($queue as $p): ?>
-              <?php
-                $pname = $p['name'] ?? '';
-                $pid = isset($p['id']) ? (int)$p['id'] : 0;
-                $stat = $playerStatsByName[$pname] ?? null;
-              ?>
-              <li>
-                <?= htmlspecialchars($pname) ?>
-                <?php if ($stat): ?>
-                  <small style="color: #666;">
-                    (Games: <?= (int)($stat['games_played'] ?? 0) ?>,
-                     <?php if (isset($stat['total_revenue'])): ?>
-                       Revenue: ₱<?= number_format($stat['total_revenue'], 2) ?>
-                     <?php endif; ?>
-                    )
-                  </small>
-                <?php endif; ?>
-
-                <form method="POST" class="inline" style="margin-left:8px;">
-                  <input type="hidden" name="player_id" value="<?= $pid ?>">
-                  <select name="table_number" required>
-                    <?php for ($i = 1; $i <= 20; $i++): ?>
-                      <option value="<?= $i ?>">Standby <?= $i ?></option>
-                    <?php endfor; ?>
-                  </select>
-                  <button type="submit" name="assign_to_standby">To Standby</button>
-                </form>
-              </li>
-            <?php endforeach; ?>
-          <?php else: ?>
-            <li><em>No players in queue</em></li>
-          <?php endif; ?>
+          <?php foreach ($queue as $p): ?>
+            <?php
+              $pname = $p['name'] ?? '';
+              $pid = isset($p['id']) ? (int)$p['id'] : 0;
+              $stat = $playerStatsByName[$pname] ?? null;
+            ?>
+            <li>
+              <?= htmlspecialchars($pname) ?>
+              <?php if ($stat): ?>
+                <small style="color: #666;">
+                  (Games: <?= (int)($stat['games_played'] ?? 0) ?>,
+                  Revenue: ₱<?= number_format($stat['total_revenue'] ?? 0, 2) ?>)
+                </small>
+              <?php endif; ?>
+              <form method="POST" class="inline" style="margin-left:8px;">
+                <input type="hidden" name="player_id" value="<?= $pid ?>">
+                <button type="submit" name="assign_to_standby">To Standby</button>
+              </form>
+            </li>
+          <?php endforeach; ?>
         </ul>
       </div>
     </div>
 
-    <div class="right">
-      <div class="standby section">
-        <h2>Standby Tables</h2>
-
-        <!-- Auto-assign button -->
-        <form method="POST" class="inline" style="margin-bottom:10px;">
-          <button type="submit" name="auto_assign_standby" style="background-color:#4CAF50;color:#fff;padding:8px 16px;">Auto-Assign Full Tables to Courts</button>
-        </form>
-
-        <div class="standby-grid">
-          <?php for ($i = 1; $i <= 20; $i++):
-            $table = $tablesByNumber[$i] ?? null;
-            $fullCount = 0;
-            if ($table) {
-                for ($j = 1; $j <= 4; $j++) {
-                    if (!empty($table["player{$j}"])) $fullCount++;
-                }
+    <!-- MIDDLE COLUMN: STANDBY TABLES -->
+    <div class="middle section">
+      <h1>Standby Tables</h1>
+      <div class="standby-grid">
+        <?php foreach ($tables as $table): ?>
+          <?php
+            $tableNumber = (int)$table['table_number'];
+            $players = [];
+            for ($i = 1; $i <= 4; $i++) {
+              $players[] = !empty($table["player{$i}"]) ? htmlspecialchars($table["player{$i}"]) : '-';
             }
+            $fullCount = count(array_filter($players, fn($p) => $p !== '-'));
+            $statusClass = $fullCount === 4 ? 'table-full' : ($fullCount > 0 ? 'table-partial' : '');
           ?>
-            <div class="table-box <?= $table ? ($fullCount === 4 ? 'table-full' : ($fullCount > 0 ? 'table-partial' : '')) : '' ?>">
-              <strong>Table <?= $i ?></strong>
-              <ul>
-                <?php
-                  if ($table) {
-                    for ($j = 1; $j <= 4; $j++):
-                      $name = $table["player{$j}"] ?? '';
-                      echo '<li>' . ($name ? htmlspecialchars($name) : '-') . '</li>';
-                    endfor;
-                  } else {
-                    for ($j = 1; $j <= 4; $j++):
-                      echo '<li>-</li>';
-                    endfor;
-                  }
-                ?>
-              </ul>
+          <div class="table-box <?= $statusClass ?>">
+            <strong>Table <?= $tableNumber ?></strong>
+            <ul>
+              <?php foreach ($players as $p): ?>
+                <li><?= $p ?></li>
+              <?php endforeach; ?>
+            </ul>
 
-              <?php if ($table && $fullCount === 4): ?>
-                <?php
-                  // find available courts (courts might be empty array)
-                  $availableCourts = [];
-                  foreach ($courts as $court) {
-                      $empty = true;
-                      for ($c = 1; $c <= 4; $c++) {
-                          if (!empty($court["player{$c}"])) { $empty = false; break; }
-                      }
-                      if ($empty) $availableCourts[] = $court['court_number'];
+            <?php if ($fullCount === 4): ?>
+              <?php
+                $availableCourts = [];
+                foreach ($courts as $court) {
+                  $empty = true;
+                  for ($c = 1; $c <= 4; $c++) {
+                    if (!empty($court["player{$c}"])) {
+                      $empty = false;
+                      break;
+                    }
                   }
-                ?>
-                <?php if (count($availableCourts) > 0): ?>
-                  <form method="POST" style="margin-top:6px;">
-                    <input type="hidden" name="table_number" value="<?= $i ?>">
-                    <select name="court_number" required style="font-size:12px;">
-                      <?php foreach ($availableCourts as $cNum): ?>
-                        <option value="<?= (int)$cNum ?>">Court <?= (int)$cNum ?></option>
-                      <?php endforeach; ?>
-                    </select>
-                    <button type="submit" name="assign_table_to_court" style="font-size:12px;">Assign</button>
-                  </form>
-                <?php else: ?>
-                  <p style="font-size:12px;color:red;margin:4px 0;"><em>No courts available</em></p>
-                <?php endif; ?>
+                  if ($empty) $availableCourts[] = $court['court_number'];
+                }
+              ?>
+              <?php if (!empty($availableCourts)): ?>
+                <form method="POST" style="margin-top:6px;">
+                  <input type="hidden" name="table_number" value="<?= $tableNumber ?>">
+                  <select name="court_number" required style="font-size:12px;">
+                    <?php foreach ($availableCourts as $cNum): ?>
+                      <option value="<?= (int)$cNum ?>">Court <?= (int)$cNum ?></option>
+                    <?php endforeach; ?>
+                  </select>
+                  <button type="submit" name="assign_table_to_court" style="font-size:12px;">Assign</button>
+                </form>
+              <?php else: ?>
+                <p style="font-size:12px;color:red;"><em>No courts available</em></p>
               <?php endif; ?>
-            </div>
-          <?php endfor; ?>
-        </div>
-      </div>
-
-      <div class="courts section">
-        <h2>Courts</h2>
-        <form method="POST" style="margin-bottom:8px;">
-          <button type="submit" name="reset_courts">Reset All Courts</button>
-        </form>
-
-        <div class="court-grid">
-          <?php if (!empty($courts)): ?>
-            <?php foreach ($courts as $court): ?>
-              <div class="court-card">
-                <strong>Court <?= (int)($court['court_number'] ?? 0) ?></strong>
-                <ul>
-                  <?php for ($i = 1; $i <= 4; $i++): ?>
-                    <?php $slot = "player{$i}"; $pname = $court[$slot] ?? ''; ?>
-                    <li>
-                      <?= $pname ? htmlspecialchars($pname) : '-' ?>
-                      <?php if ($pname): ?>
-                        <form method="POST" class="inline">
-                          <input type="hidden" name="court_number" value="<?= (int)($court['court_number'] ?? 0) ?>">
-                          <input type="hidden" name="player_slot" value="<?= htmlspecialchars($slot) ?>">
-                          <button type="submit" name="remove_from_court">Remove</button>
-                        </form>
-                      <?php endif; ?>
-                    </li>
-                  <?php endfor; ?>
-                </ul>
-
-                <form method="POST" class="inline">
-                  <input type="hidden" name="court_number" value="<?= (int)($court['court_number'] ?? 0) ?>">
-                  <input type="text" name="shuttlecock" placeholder="Shuttlecock" value="<?= htmlspecialchars($court['shuttlecock'] ?? '') ?>">
-                  <button type="submit" name="update_shuttlecock">Update Shuttlecock</button>
-                </form>
-
-                <form method="POST" class="inline" onsubmit="return confirm('Finish game on Court <?= (int)($court['court_number'] ?? 0) ?>?');">
-                  <input type="hidden" name="court_number" value="<?= (int)($court['court_number'] ?? 0) ?>">
-                  <button type="submit" name="finish_game">Finish Game</button>
-                </form>
-              </div>
-            <?php endforeach; ?>
-          <?php else: ?>
-            <p><em>No courts defined.</em></p>
-          <?php endif; ?>
-        </div>
+            <?php endif; ?>
+          </div>
+        <?php endforeach; ?>
       </div>
     </div>
+
+    <!-- RIGHT COLUMN: COURTS -->
+    <div class="right section">
+      <h2>Courts</h2>
+      <form method="POST" style="margin-bottom:8px;">
+        <button type="submit" name="reset_courts">Reset All Courts</button>
+      </form>
+      <div class="court-grid">
+        <?php foreach ($courts as $court): ?>
+          <?php if ((int)$court['court_number'] >= 1 && (int)$court['court_number'] <= 9): ?>
+            <div class="court-card">
+              <strong>Court <?= (int)$court['court_number'] ?></strong>
+              <ul>
+                <?php for ($i = 1; $i <= 4; $i++): ?>
+                  <?php $slot = "player{$i}"; $pname = $court[$slot] ?? ''; ?>
+                  <li>
+                    <?= $pname ? htmlspecialchars($pname) : '-' ?>
+                    <?php if ($pname): ?>
+                      <form method="POST" class="inline">
+                        <input type="hidden" name="court_number" value="<?= (int)$court['court_number'] ?>">
+                        <input type="hidden" name="player_slot" value="<?= htmlspecialchars($slot) ?>">
+                        <button type="submit" name="remove_from_court">Remove</button>
+                      </form>
+                    <?php endif; ?>
+                  </li>
+                <?php endfor; ?>
+              </ul>
+
+              <form method="POST" class="inline">
+                <input type="hidden" name="court_number" value="<?= (int)$court['court_number'] ?>">
+                <input type="text" name="shuttlecock" placeholder="Shuttlecock" value="<?= htmlspecialchars($court['shuttlecock'] ?? '') ?>">
+                <button type="submit" name="update_shuttlecock">Update Shuttlecock</button>
+              </form>
+
+              <form method="POST" class="inline" onsubmit="return confirm('Finish game on Court <?= (int)$court['court_number'] ?>?');">
+                <input type="hidden" name="court_number" value="<?= (int)$court['court_number'] ?>">
+                <button type="submit" name="finish_game">Finish Game</button>
+              </form>
+            </div>
+          <?php endif; ?>
+        <?php endforeach; ?>
+      </div>
+    </div>
+
   </div>
 
-  <div class="section">
+  <!-- BOTTOM LINKS -->
+  <div class="bottom-links section">
     <a href="Live_timers.php" target="_blank">🕒 View Live Court Timers</a> |
     <a href="player_stats.php" target="_blank">📊 View Player Statistics</a> |
     <a href="game_history.php" target="_blank">📋 View Game History</a>

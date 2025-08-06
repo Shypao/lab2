@@ -3,7 +3,7 @@
 <html>
 <head>
     <title>Standby Tables Management</title>
-    <link rel="stylesheet" href="courts.css">
+    <link rel="stylesheet" href="style.css">
 </head>
 <body>
     <div class="container">
@@ -15,10 +15,15 @@
                 <button type="submit" name="auto_assign_standby" style="background-color: #4CAF50; color: white; padding: 10px 20px; font-size: 16px;">Auto-Assign All Full Tables to Available Courts</button>
             </form>
 
-            <?php for ($i = 1; $i <= 50; $i++): 
-                $tables = $pdo->query("SELECT * FROM standby_tables ORDER BY table_number ASC")->fetchAll();
-                $table = array_filter($tables, fn($t) => $t['table_number'] == $i);
-                $table = reset($table);
+            <?php
+            // Get all standby tables once
+            $tables = $pdo->query("SELECT * FROM standby_tables ORDER BY table_number ASC")->fetchAll();
+
+            // Get all courts once
+            $courts = $pdo->query("SELECT * FROM courts ORDER BY court_number ASC")->fetchAll();
+
+            foreach ($tables as $table):
+                $i = $table['table_number'];
             ?>
                 <div class="table-box" style="width: 300px; display: inline-block; margin: 10px; vertical-align: top;">
                     <strong>Table <?= $i ?></strong>
@@ -37,25 +42,27 @@
                         <?php endfor; ?>
                     </ul>
 
-                    <?php 
-                        $isFull = $table && !empty($table["player1"]) && !empty($table["player2"]) && !empty($table["player3"]) && !empty($table["player4"]);
-                    ?>
+                    <?php
+                        // Check if this table is full
+                        $isFull = !empty($table["player1"]) && !empty($table["player2"]) && !empty($table["player3"]) && !empty($table["player4"]);
 
-                    <?php if ($isFull): 
                         // Check available courts
                         $availableCourts = [];
                         foreach ($courts as $court) {
-                            $empty = true;
+                            $courtEmpty = true;
                             for ($c = 1; $c <= 4; $c++) {
                                 if (!empty($court["player$c"])) {
-                                    $empty = false;
+                                    $courtEmpty = false;
                                     break;
                                 }
                             }
-                            if ($empty) $availableCourts[] = $court['court_number'];
+                            if ($courtEmpty) {
+                                $availableCourts[] = $court['court_number'];
+                            }
                         }
                     ?>
 
+                    <?php if ($isFull): ?>
                         <?php if (count($availableCourts) > 0): ?>
                             <form method="POST" onsubmit="return confirm('Assign Table <?= $i ?> to a court?');">
                                 <input type="hidden" name="table_number" value="<?= $i ?>">
@@ -69,9 +76,8 @@
                         <?php else: ?>
                             <p><em>No courts available</em></p>
                         <?php endif; ?>
-
                     <?php else: ?>
-                        <!-- Add player form only shows if table is not full -->
+                        <!-- Show add player form if not full -->
                         <form method="POST">
                             <input type="text" name="player_name" placeholder="Name" required>
                             <input type="hidden" name="table_number" value="<?= $i ?>">
@@ -79,7 +85,7 @@
                         </form>
                     <?php endif; ?>
                 </div>
-            <?php endfor; ?>
+            <?php endforeach; ?>
         </div>
     </div>
 </body>

@@ -74,40 +74,51 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
         }
         redirect_self();
     }
+// ASSIGN a player from queue to a standby table (auto-create new tables as needed)
+if (isset($_POST['assign_to_standby'])) {
+    $playerId = safe_int($_POST['player_id'] ?? null, 0);
 
-    // ASSIGN a player from queue to a standby table
-    if (isset($_POST['assign_to_standby'])) {
-        $playerId = safe_int($_POST['player_id'] ?? null, 0);
-        $tableNumber = safe_int($_POST['table_number'] ?? null, 0);
+    if ($playerId > 0) {
+        // Get player name from queue
+        $stmt = $pdo->prepare("SELECT name FROM player_queue WHERE id = ?");
+        $stmt->execute([$playerId]);
+        $playerName = $stmt->fetchColumn();
 
-        if ($playerId > 0 && $tableNumber > 0) {
-            $stmt = $pdo->prepare("SELECT name FROM player_queue WHERE id = ?");
-            $stmt->execute([$playerId]);
-            $playerName = $stmt->fetchColumn();
+        if ($playerName) {
+            // Try to find a non-full table
+            $tables = $pdo->query("SELECT * FROM standby_tables ORDER BY table_number ASC")->fetchAll();
+            $assigned = false;
 
-            if ($playerName) {
-                $stmt = $pdo->prepare("SELECT * FROM standby_tables WHERE table_number = ?");
-                $stmt->execute([$tableNumber]);
-                $table = $stmt->fetch();
-
-                if (!$table) {
-                    $stmt = $pdo->prepare("INSERT INTO standby_tables (table_number, player1) VALUES (?, ?)");
-                    $stmt->execute([$tableNumber, $playerName]);
-                } else {
-                    for ($i = 1; $i <= 4; $i++) {
-                        if (empty($table["player{$i}"])) {
-                            $stmt = $pdo->prepare("UPDATE standby_tables SET player{$i} = ? WHERE table_number = ?");
-                            $stmt->execute([$playerName, $tableNumber]);
-                            break;
-                        }
+            foreach ($tables as $table) {
+                for ($i = 1; $i <= 4; $i++) {
+                    if (empty($table["player$i"])) {
+                        $stmt = $pdo->prepare("UPDATE standby_tables SET player{$i} = ? WHERE table_number = ?");
+                        $stmt->execute([$playerName, $table['table_number']]);
+                        $assigned = true;
+                        break 2;
                     }
                 }
-                $pdo->prepare("DELETE FROM player_queue WHERE id = ?")->execute([$playerId]);
             }
-        }
-        redirect_self();
-    }
 
+            // No available spot, create new table
+            if (!$assigned) {
+                $stmt = $pdo->query("SELECT MAX(table_number) AS max_num FROM standby_tables");
+                $nextTable = ($stmt->fetch()['max_num'] ?? 0) + 1;
+
+                $stmt = $pdo->prepare("INSERT INTO standby_tables (table_number, player1) VALUES (?, ?)");
+                $stmt->execute([$nextTable, $playerName]);
+            }
+
+            // Remove from queue
+            $pdo->prepare("DELETE FROM player_queue WHERE id = ?")->execute([$playerId]);
+        }
+    }
+    redirect_self();
+}
+
+    
+
+    
     // REMOVE player from standby back to queue
     if (isset($_POST['remove_from_table'])) {
         $tableNumber = safe_int($_POST['table_number'] ?? null, 0);
