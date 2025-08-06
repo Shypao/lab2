@@ -55,10 +55,11 @@
 
             <?php
             // Calculate summary statistics
-            $totalPlayers = count($playerStats);
-            $totalGames = array_sum(array_column($playerStats, 'games_played'));
-            $totalRevenue = array_sum(array_column($playerStats, 'total_revenue'));
-            $avgGamesPerPlayer = $totalPlayers > 0 ? round($totalGames / $totalPlayers, 1) : 0;
+            $totalPlayers = count($playerStats ?? []);
+$totalGames = !empty($playerStats) ? array_sum(array_column($playerStats, 'games_played')) : 0;
+$totalRevenue = !empty($playerStats) ? array_sum(array_column($playerStats, 'total_revenue')) : 0;
+$avgGamesPerPlayer = $totalPlayers > 0 ? round($totalGames / $totalPlayers, 1) : 0;
+
             ?>
 
             <div class="stats-summary">
