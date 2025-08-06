@@ -4,6 +4,13 @@ $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
 
 date_default_timezone_set('Asia/Manila');
 
+// Database connection
+try {
+    $pdo = new PDO("mysql:host=localhost;dbname=badminton_queue;charset=utf8", "root", "");
+    $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+} catch (PDOException $e) {
+    die("Database connection failed: " . $e->getMessage());
+}
 // Add player to queue
 if ($_SERVER["REQUEST_METHOD"] === "POST" && isset($_POST['add_player'])) {
     $name = trim($_POST['player_name']);
@@ -47,6 +54,142 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && isset($_POST['assign_to_standby']))
     }
 }
 
+// Remove player from standby table
+if ($_SERVER["REQUEST_METHOD"] === "POST" && isset($_POST['remove_from_table'])) {
+    $tableNumber = $_POST['table_number'];
+    $slot = $_POST['slot'];
+
+    $stmt = $pdo->prepare("SELECT $slot FROM standby_tables WHERE table_number = ?");
+    $stmt->execute([$tableNumber]);
+    $playerName = $stmt->fetchColumn();
+
+    if ($playerName) {
+        // Return player to queue
+        $stmt = $pdo->prepare("INSERT INTO player_queue (name) VALUES (?)");
+        $stmt->execute([$playerName]);
+
+        // Remove from standby table
+        $stmt = $pdo->prepare("UPDATE standby_tables SET $slot = NULL WHERE table_number = ?");
+        $stmt->execute([$tableNumber]);
+
+        // Check if table is now empty and delete if so
+        $stmt = $pdo->prepare("SELECT * FROM standby_tables WHERE table_number = ?");
+        $stmt->execute([$tableNumber]);
+        $table = $stmt->fetch();
+        
+        $isEmpty = true;
+        for ($i = 1; $i <= 4; $i++) {
+            if (!empty($table["player$i"])) {
+                $isEmpty = false;
+                break;
+            }
+        }
+        
+        if ($isEmpty) {
+            $pdo->prepare("DELETE FROM standby_tables WHERE table_number = ?")->execute([$tableNumber]);
+        }
+    }
+}
+
+// Add player directly to standby table
+if ($_SERVER["REQUEST_METHOD"] === "POST" && isset($_POST['add_to_table'])) {
+    $name = trim($_POST['player_name']);
+    $tableNumber = $_POST['table_number'];
+    
+    if (!empty($name)) {
+        // Check if table exists
+        $stmt = $pdo->prepare("SELECT * FROM standby_tables WHERE table_number = ?");
+        $stmt->execute([$tableNumber]);
+        $table = $stmt->fetch();
+        
+        if (!$table) {
+            // Create new table with first player
+            $stmt = $pdo->prepare("INSERT INTO standby_tables (table_number, player1) VALUES (?, ?)");
+            $stmt->execute([$tableNumber, $name]);
+        } else {
+            // Find first empty slot
+            for ($i = 1; $i <= 4; $i++) {
+                if (empty($table["player$i"])) {
+                    $stmt = $pdo->prepare("UPDATE standby_tables SET player$i = ? WHERE table_number = ?");
+                    $stmt->execute([$name, $tableNumber]);
+                    break;
+                }
+            }
+        }
+    }
+}
+
+// Auto-assign standby tables to courts
+if ($_SERVER["REQUEST_METHOD"] === "POST" && isset($_POST['auto_assign_standby'])) {
+    // Get all full standby tables
+    $fullTables = $pdo->query("SELECT * FROM standby_tables WHERE player1 IS NOT NULL AND player2 IS NOT NULL AND player3 IS NOT NULL AND player4 IS NOT NULL ORDER BY table_number ASC")->fetchAll();
+    
+    // Get all empty courts
+    $emptyCourts = $pdo->query("SELECT * FROM courts WHERE player1 IS NULL AND player2 IS NULL AND player3 IS NULL AND player4 IS NULL ORDER BY court_number ASC")->fetchAll();
+    
+    $assigned = 0;
+    foreach ($fullTables as $table) {
+        if ($assigned >= count($emptyCourts)) break;
+        
+        $court = $emptyCourts[$assigned];
+        
+        // Assign table to court
+        $stmt = $pdo->prepare("UPDATE courts SET player1 = ?, player2 = ?, player3 = ?, player4 = ?, start_time = NOW() WHERE court_number = ?");
+        $stmt->execute([$table['player1'], $table['player2'], $table['player3'], $table['player4'], $court['court_number']]);
+        
+        // Clear the standby table
+        $pdo->prepare("DELETE FROM standby_tables WHERE table_number = ?")->execute([$table['table_number']]);
+        
+        $assigned++;
+    }
+}
+
+// Manual assign table to court
+if ($_SERVER["REQUEST_METHOD"] === "POST" && isset($_POST['assign_table_to_court'])) {
+    $tableNumber = $_POST['table_number'];
+    $courtNumber = $_POST['court_number'];
+
+    // Check if court is empty
+    $stmt = $pdo->prepare("SELECT * FROM courts WHERE court_number = ?");
+    $stmt->execute([$courtNumber]);
+    $court = $stmt->fetch();
+    
+    $isEmpty = true;
+    for ($i = 1; $i <= 4; $i++) {
+        if (!empty($court["player$i"])) {
+            $isEmpty = false;
+            break;
+        }
+    }
+
+    if ($isEmpty) {
+        // Fetch players from standby table
+        $stmt = $pdo->prepare("SELECT * FROM standby_tables WHERE table_number = ?");
+        $stmt->execute([$tableNumber]);
+        $table = $stmt->fetch();
+
+        if ($table) {
+            // Check if table is full
+            $isFull = true;
+            for ($i = 1; $i <= 4; $i++) {
+                if (empty($table["player$i"])) {
+                    $isFull = false;
+                    break;
+                }
+            }
+            
+            if ($isFull) {
+                // Update court with players and start_time
+                $stmt = $pdo->prepare("UPDATE courts SET player1 = ?, player2 = ?, player3 = ?, player4 = ?, start_time = NOW() WHERE court_number = ?");
+                $stmt->execute([$table['player1'], $table['player2'], $table['player3'], $table['player4'], $courtNumber]);
+
+                // Remove from standby
+                $stmt = $pdo->prepare("DELETE FROM standby_tables WHERE table_number = ?");
+                $stmt->execute([$tableNumber]);
+            }
+        }
+    }
+}
 
 // Assign player to court and auto-start timer if court becomes full
 if ($_SERVER["REQUEST_METHOD"] === "POST" && isset($_POST['assign_player'])) {
@@ -106,6 +249,68 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && isset($_POST['assign_table_to_court
         // Optional: Log the assignment or show a message
     }
 }
+
+
+
+if ($_SERVER["REQUEST_METHOD"] === "POST" && isset($_POST['finish_game'])) {
+    $courtNumber = $_POST['court_number'];
+
+    $stmt = $pdo->prepare("SELECT * FROM courts WHERE court_number = ?");
+    $stmt->execute([$courtNumber]);
+    $court = $stmt->fetch();
+
+    if ($court) {
+        $players = [];
+        for ($i = 1; $i <= 4; $i++) {
+            $player = $court["player$i"];
+            if ($player) {
+                $players[] = $player;
+
+                // Add to queue
+                $stmt = $pdo->prepare("INSERT INTO player_queue (name) VALUES (?)");
+                $stmt->execute([$player]);
+
+                // Add to revenue
+                $stmt = $pdo->prepare("INSERT INTO player_revenue (player_name, court_number, amount) VALUES (?, ?, ?)");
+                $stmt->execute([$player, $courtNumber, 30.00]);
+
+                // Update player_stats
+                $stmt = $pdo->prepare("INSERT INTO player_stats (name, games_played, total_revenue, last_played) 
+                    VALUES (?, 1, 30.00, NOW()) 
+                    ON DUPLICATE KEY UPDATE 
+                        games_played = games_played + 1, 
+                        total_revenue = total_revenue + 30.00, 
+                        last_played = NOW()");
+                $stmt->execute([$player]);
+            }
+        }
+
+        // Insert into game_history
+        if (!empty($players)) {
+            $startTime = $court['start_time'] ?? date("Y-m-d H:i:s");
+            $endTime = date("Y-m-d H:i:s");
+            $duration = round((strtotime($endTime) - strtotime($startTime)) / 60);
+
+            $stmt = $pdo->prepare("INSERT INTO game_history (court_number, player1, player2, player3, player4, start_time, end_time, duration_minutes, revenue_per_player) 
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, 30.00)");
+            $stmt->execute([
+                $courtNumber,
+                $court["player1"],
+                $court["player2"],
+                $court["player3"],
+                $court["player4"],
+                $startTime,
+                $endTime,
+                $duration
+            ]);
+        }
+
+        // Clear court
+        $stmt = $pdo->prepare("UPDATE courts SET player1 = NULL, player2 = NULL, player3 = NULL, player4 = NULL, shuttlecock = NULL, start_time = NULL WHERE court_number = ?");
+        $stmt->execute([$courtNumber]);
+    }
+}
+
 
 // Remove player from court and return to queue
 if ($_SERVER["REQUEST_METHOD"] === "POST" && isset($_POST['remove_from_court'])) {
