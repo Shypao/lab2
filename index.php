@@ -205,8 +205,23 @@ foreach ($standby_tables as $t) {
         <?php endforeach; ?>
       </div>
     </div>
-
   </div>
+  <?php
+  
+if (isset($_GET['reset'])) {
+    if ($_GET['reset'] == 'success') {
+        echo "<script>alert('✅ System reset successful!');</script>";
+    } elseif ($_GET['reset'] == 'error' && isset($_GET['msg'])) {
+        echo "<script>alert('❌ " . htmlspecialchars($_GET['msg']) . "');</script>";
+    }
+}
+?>
+
+<!-- Reset Entire System -->
+<form action="reset.php" method="POST" onsubmit="return confirm('Are you sure you want to reset the system?');">
+  <button type="submit">🔁 Reset System</button>
+</form>
+
 
   <!-- BOTTOM LINKS -->
   <div class="bottom-links section">
