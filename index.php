@@ -83,25 +83,28 @@ foreach ($standby_tables as $t) {
 
       <div class="section">
         <h2>Waiting Queue (<?= count($queue) ?>)</h2>
-        <ul>
+        <ul id="waiting-queue"
+            ondragover="event.preventDefault();"
+            ondrop="dropPlayer(event)">
           <?php foreach ($queue as $p): ?>
             <?php
               $pname = $p['name'] ?? '';
               $pid = isset($p['id']) ? (int)$p['id'] : 0;
               $stat = $playerStatsByName[$pname] ?? null;
             ?>
-            <li>
-              <?= htmlspecialchars($pname) ?>
+            <li style="cursor:pointer;">
+              <form method="POST" style="display:inline;" class="assign-to-standby-form">
+                <input type="hidden" name="player_id" value="<?= $pid ?>">
+                <button type="submit" name="assign_to_standby" style="background:none;border:none;padding:0;color:#007bff;cursor:pointer;font-size:inherit;">
+                  <?= htmlspecialchars($pname) ?>
+                </button>
+              </form>
               <?php if ($stat): ?>
                 <small style="color: #666;">
                   (Games: <?= (int)($stat['games_played'] ?? 0) ?>,
                   Revenue: ₱<?= number_format($stat['total_revenue'] ?? 0, 2) ?>)
                 </small>
               <?php endif; ?>
-              <form method="POST" class="inline" style="margin-left:8px;">
-                <input type="hidden" name="player_id" value="<?= $pid ?>">
-                <button type="submit" name="assign_to_standby">To Standby</button>
-              </form>
             </li>
           <?php endforeach; ?>
         </ul>

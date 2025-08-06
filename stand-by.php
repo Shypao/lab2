@@ -29,9 +29,16 @@
                     <strong>Table <?= $i ?></strong>
                     <ul>
                         <?php for ($j = 1; $j <= 4; $j++): ?>
-                            <li>
-                                <?= htmlspecialchars($table["player$j"] ?? '-') ?>
-                                <?php if (!empty($table["player$j"])): ?>
+                            <?php $playerName = $table["player$j"]; ?>
+                            <li
+                                <?php if (!empty($playerName)): ?>
+                                    draggable="true"
+                                    ondragstart="dragPlayer(event, '<?= htmlspecialchars($playerName, ENT_QUOTES) ?>', <?= $i ?>, 'player<?= $j ?>')"
+                                    style="cursor: grab;"
+                                <?php endif; ?>
+                            >
+                                <?= htmlspecialchars($playerName ?? '-') ?>
+                                <?php if (!empty($playerName)): ?>
                                     <form method="POST" class="inline">
                                         <input type="hidden" name="slot" value="player<?= $j ?>">
                                         <input type="hidden" name="table_number" value="<?= $i ?>">
@@ -88,5 +95,51 @@
             <?php endforeach; ?>
         </div>
     </div>
+
+    <!-- Hidden form for moving player from standby to queue -->
+    <form id="movePlayerForm" method="POST" style="display:none;">
+        <input type="hidden" name="move_player_name" id="move_player_name">
+        <input type="hidden" name="from_table_number" id="from_table_number">
+        <input type="hidden" name="from_slot" id="from_slot">
+        <button type="submit" name="move_to_queue">Move</button>
+    </form>
+
+    <script>
+    function dragPlayer(event, playerName, tableNumber, slot) {
+        event.dataTransfer.setData("playerName", playerName);
+        event.dataTransfer.setData("tableNumber", tableNumber);
+        event.dataTransfer.setData("slot", slot);
+    }
+
+    function dropPlayer(event) {
+        var playerName = event.dataTransfer.getData("playerName");
+        var tableNumber = event.dataTransfer.getData("tableNumber");
+        var slot = event.dataTransfer.getData("slot");
+        // Fill the hidden form and submit
+        document.getElementById('move_player_name').value = playerName;
+        document.getElementById('from_table_number').value = tableNumber;
+        document.getElementById('from_slot').value = slot;
+        document.getElementById('movePlayerForm').submit();
+    }
+    </script>
 </body>
 </html>
+
+<?php
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['move_to_queue'])) {
+    $playerName = $_POST['move_player_name'];
+    $tableNumber = (int)$_POST['from_table_number'];
+    $slot = $_POST['from_slot'];
+
+    // Remove player from standby table
+    $stmt = $pdo->prepare("UPDATE standby_tables SET $slot = NULL WHERE table_number = ?");
+    $stmt->execute([$tableNumber]);
+
+    // Add player to waiting queue
+    $stmt = $pdo->prepare("INSERT INTO player_queue (name) VALUES (?)");
+    $stmt->execute([$playerName]);
+
+    // Redirect to avoid resubmission
+    header("Location: stand-by.php");
+    exit;
+}
