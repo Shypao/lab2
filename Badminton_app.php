@@ -6,6 +6,7 @@ error_reporting(E_ALL);
 
 date_default_timezone_set('Asia/Manila');
 
+
 try {
     $pdo = new PDO("mysql:host=localhost;dbname=badminton_queue;charset=utf8", "root", "");
     $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
